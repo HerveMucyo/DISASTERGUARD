@@ -1,0 +1,79 @@
+name: Deploy DISASTERGUARD
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      deploy_backend:
+        description: 'Deploy Backend'
+        required: false
+        default: 'true'
+      deploy_frontend:
+        description: 'Deploy Frontend'
+        required: false
+        default: 'true'
+
+jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend-changed: ${{ steps.filter.outputs.backend }}
+      frontend-changed: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'disaster-guard-backend/**'
+            frontend:
+              - 'disaster-guard-frontend-with-react.js/**'
+
+  deploy-backend:
+    needs: check-changes
+    if: ${{ needs.check-changes.outputs.backend-changed == 'true' || github.event.inputs.deploy_backend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Deploy to Render
+        uses: johnbeynon/render-deploy@v1.0.0
+        with:
+          service-id: ${{ secrets.RENDER_SERVICE_ID }}
+          api-key: ${{ secrets.RENDER_API_KEY }}
+
+  deploy-frontend:
+    needs: check-changes
+    if: ${{ needs.check-changes.outputs.frontend-changed == 'true' || github.event.inputs.deploy_frontend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: disaster-guard-frontend-with-react.js/package-lock.json
+          
+      - name: Install dependencies
+        working-directory: disaster-guard-frontend-with-react.js
+        run: npm ci
+        
+      - name: Build project
+        working-directory: disaster-guard-frontend-with-react.js
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./disaster-guard-frontend-with-react.js
